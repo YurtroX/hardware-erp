@@ -1,0 +1,51 @@
+name: Build HardwareERP
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # El script trae "--no-build" en dotnet publish, que en CI falla
+      # porque el paso previo (dotnet build) no generó la RID win-x64.
+      # Lo quitamos antes de ejecutar.
+      - name: Ajustar script (quitar --no-build)
+        shell: pwsh
+        run: |
+          $path = "Setup-HardwareERP.ps1"
+          $content = Get-Content $path -Raw -Encoding UTF8
+          $content = $content -replace ' --no-build', ''
+          [System.IO.File]::WriteAllText("$PWD/$path", $content, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Ejecutar script de build
+        shell: pwsh
+        run: |
+          .\Setup-HardwareERP.ps1 -Root "$env:GITHUB_WORKSPACE\HardwareERP" -SkipRun
+
+      - name: Verificar salida
+        shell: pwsh
+        run: |
+          $pub = "$env:GITHUB_WORKSPACE\HardwareERP\bin\Release\net8.0-windows\win-x64\publish"
+          if (-not (Test-Path $pub)) { Write-Error "No se generó publish en $pub"; exit 1 }
+          Get-ChildItem $pub | Select-Object Name, Length | Format-Table
+
+      - name: Subir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HardwareERP-win64
+          path: HardwareERP/bin/Release/net8.0-windows/win-x64/publish/
+          retention-days: 30
